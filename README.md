@@ -9,4 +9,26 @@ A small 3D tilt-tray loop sorter simulator that runs in the browser (Three.js).
 
 ## Run
 
-Open `index.html` in a browser. It needs an internet connection to load Three.js from a CDN.
+The page uses JavaScript modules, which browsers don't load from a file opened directly, so serve the folder:
+
+```sh
+npx serve          # or: python3 -m http.server
+```
+
+Then open the address it prints. It needs an internet connection to load Three.js from a CDN. There is no build step.
+
+## Code
+
+| File | What it holds |
+| --- | --- |
+| `index.html` | Page structure and the import map for Three.js |
+| `style.css` | Styles for the panels |
+| `js/layout.js` | Dimensions and the loop's path (no Three.js, so it can be tested on its own) |
+| `js/scene.js` | Renderer, camera, lights, floor, shared materials |
+| `js/state.js` | Settings from the control panel and running totals |
+| `js/parcels.js` | Parcel size, weight, label data and the carton mesh |
+| `js/sorter.js` | Loop frame, trays, chutes and bins, and parcels from the tray onwards |
+| `js/infeed.js` | Belt, merge belt, scale, label scanner, light grid and the merge onto a tray |
+| `js/robot.js` | Robot arm and pallet |
+| `js/ui.js` | Control panel, parcel information panel, clicking in the 3D view |
+| `js/main.js` | Startup and the animation loop |
