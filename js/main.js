@@ -1,22 +1,8 @@
 // Startup and the animation loop.
 import { renderer, scene, camera, controls, resize } from './scene.js';
-import { settings } from './state.js';
-import { moveCarriers, updateSorterParcels } from './sorter.js';
-import { updateInfeed, placeOnBelt } from './infeed.js';
-import { rob, updateRobot } from './robot.js';
+import { step } from './simulation.js';
+import { placeOnBelt } from './infeed.js';
 import { initUI, refreshUI } from './ui.js';
-
-function step(dt) {
-  moveCarriers(dt);
-  updateInfeed(dt);
-  updateSorterParcels(dt);
-  // Auto-feed: hands the robot a new pick when it has nothing queued
-  if (settings.auto) {
-    settings.autoTimer += dt;
-    if (settings.autoTimer >= 60 / settings.rate && rob.queue.length === 0) { rob.queue.push(settings.dest); settings.autoTimer = 0; }
-  }
-  updateRobot(dt);
-}
 
 window.addEventListener('resize', resize);
 resize();

@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Simulation test</title>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+    "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="sim-harness.js"></script>
+</head>
+<body>
+<!-- Runs one scenario (?scenario=name) against the real modules and writes the outcome as JSON into #result.
+     Driven by sim.test.js through headless Chrome. -->
+<canvas id="scene" width="64" height="64"></canvas>
+<pre id="result"></pre>
+</body>
+</html>

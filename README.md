@@ -17,6 +17,17 @@ npx serve          # or: python3 -m http.server
 
 Then open the address it prints. It needs an internet connection to load Three.js from a CDN. There is no build step.
 
+## Test
+
+```sh
+npm test
+```
+
+There is nothing to install: it uses Node's built-in test runner (Node 20 or newer).
+
+- `tests/layout.test.js` checks the loop geometry in Node.
+- `tests/sim.test.js` serves the project, runs scenarios from `tests/sim.html` in headless Chrome and checks the outcome: parcels pass all three infeed stations and reach the right chute, a closed chute makes parcels go round again, a full bin stops taking parcels, and nothing moves onto the loop when the sorter is stopped. It needs Chrome (set `CHROME_PATH` if it isn't in the usual place; without Chrome these tests are skipped) and an internet connection for Three.js.
+
 ## Code
 
 | File | What it holds |
@@ -31,4 +42,6 @@ Then open the address it prints. It needs an internet connection to load Three.j
 | `js/infeed.js` | Belt, merge belt, scale, label scanner, light grid and the merge onto a tray |
 | `js/robot.js` | Robot arm and pallet |
 | `js/ui.js` | Control panel, parcel information panel, clicking in the 3D view |
+| `js/simulation.js` | One simulation step, shared by the animation loop and the tests |
 | `js/main.js` | Startup and the animation loop |
+| `tests/` | `npm test` (not deployed; see `.vercelignore`) |
