@@ -12,6 +12,7 @@ resize();
 initUI();
 
 let last = performance.now(), uiTimer = 0;
+/** @param {number} now */
 function frame(now) {
   const dt = Math.min(0.05, (now - last) / 1000);
   last = now;
@@ -23,4 +24,4 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 requestAnimationFrame(frame);
-window.sorterStarted = true;
+Object.assign(window, { sorterStarted: true }); // read by index.html's start-up check

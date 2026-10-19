@@ -7,7 +7,9 @@ import { skip, startServer, stopServer, runPage } from './browser.js';
 before(startServer);
 after(stopServer);
 
+/** @param {{ count: string }} chute */
 const inBin = chute => parseInt(chute.count, 10);
+/** @type {import('./ui-harness.js').UiResult} filled by the first test, read by the rest */
 let r;
 
 test('the page starts with two parcels on the infeed and empty, open chutes', { skip }, async () => {

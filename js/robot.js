@@ -6,6 +6,17 @@ import { scene, mat, M, box } from './scene.js';
 import { newParcel, cardboard } from './parcels.js';
 import { beltPoint, canPlace, putOnBelt } from './infeed.js';
 
+/** @typedef {import('./parcels.js').Parcel} Parcel */
+/** @typedef {import('./parcels.js').DestChoice} DestChoice */
+/** @typedef {'Idle' | 'Picking' | 'Placing' | 'Waiting for space'} RobotState */
+/** Tool tip around the robot base: turn, reach and height (m), and tool rotation @typedef {{ yaw: number, r: number, y: number, rot: number }} Pose */
+/**
+ * One step of a job: move to a pose over dur seconds, or wait until a condition holds
+ * @typedef {{ to: Pose, dur: number, status?: RobotState, end?: () => void }} Move
+ * @typedef {{ wait: () => boolean, status?: RobotState }} Wait
+ * @typedef {Move | Wait} Step
+ */
+
 const ROB = { a1: 1.15, a2: 1.05, a3: 0.32, H0: 0.78 };
 const MAX_QUEUE = 5;
 const robotBase = beltPoint(0.4, 1.25);
@@ -35,6 +46,11 @@ robotGroup.position.copy(robotBase);
 scene.add(robotGroup);
 const mBody = mat(0xe9edf0, { roughness: 0.45 });
 const mJoint = mat(0x2f3842, { metalness: 0.3, roughness: 0.5 });
+/**
+ * @param {THREE.BufferGeometry} geo
+ * @param {THREE.Material} material
+ * @param {THREE.Object3D} parent
+ */
 function rpart(geo, material, parent, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(geo, material);
   m.position.set(x, y, z);
@@ -42,7 +58,9 @@ function rpart(geo, material, parent, x = 0, y = 0, z = 0) {
   parent.add(m);
   return m;
 }
+/** @type {(r: number, len: number) => THREE.BufferGeometry} */
 const jointGeo = (r, len) => new THREE.CylinderGeometry(r, r, len, 24).rotateX(Math.PI / 2);
+/** @type {(len: number, t: number) => THREE.BufferGeometry} */
 const linkGeo = (len, t) => new THREE.BoxGeometry(len, t, t * 0.9).translate(len / 2, 0, 0);
 
 rpart(new THREE.CylinderGeometry(0.32, 0.38, 0.5, 32), mJoint, robotGroup, 0, 0.25, 0);
@@ -72,7 +90,9 @@ cupBar.castShadow = false;
 for (const z of [-0.12, 0.12]) rpart(new THREE.CylinderGeometry(0.05, 0.035, 0.05, 16).rotateZ(Math.PI / 2), mJoint, flange, ROB.a3 - 0.025, 0, z);
 
 // Pose = tool tip in cylindrical coordinates around the robot base, plus tool rotation
+/** @type {(pt: THREE.Vector3) => { yaw: number, r: number }} */
 const cyl = pt => ({ yaw: Math.atan2(-(pt.z - robotBase.z), pt.x - robotBase.x), r: Math.hypot(pt.x - robotBase.x, pt.z - robotBase.z) });
+/** @param {Pose} q */
 function setPose(q) {
   turret.rotation.y = q.yaw;
   const wy = q.y + ROB.a3 - ROB.H0;
@@ -85,19 +105,37 @@ function setPose(q) {
   flange.rotation.x = -q.rot;
 }
 
-const rob = { queue: [], steps: [], cur: null, carry: null, status: 'Idle', pose: Object.assign(cyl(PICK), { y: 1.6, rot: 0 }) };
+const rob = {
+  /** @type {DestChoice[]} picks waiting to start */
+  queue: [],
+  /** @type {Step[]} rest of the current job */
+  steps: [],
+  /** @type {{ step: Step, t: number, from: Pose } | null} the step in progress */
+  cur: null,
+  /** @type {Parcel | null} parcel held by the suction cups */
+  carry: null,
+  /** @type {RobotState} */
+  status: 'Idle',
+  /** @type {Pose} */
+  pose: { ...cyl(PICK), y: 1.6, rot: 0 },
+};
+/** @param {Parcel} p */
 const dropT = p => p.e / 2 + 0.05;
 
-// Queues a pick for destination 'A', 'B' or 'R'; returns false when the queue is full
+/**
+ * Queues a pick; returns false when the queue is full
+ * @param {DestChoice} dest
+ */
 export function requestPick(dest) {
   if (rob.queue.length >= MAX_QUEUE) return false;
   rob.queue.push(dest);
   return true;
 }
 
-// What the robot is doing ('Idle', 'Picking', 'Placing', 'Waiting for space') and how many picks are queued
+/** @type {() => { status: RobotState, queued: number }} What the robot is doing and how many picks are queued */
 export const robotStatus = () => ({ status: rob.status, queued: rob.queue.length });
 
+/** @param {DestChoice} dest */
 function startJob(dest) {
   const p = newParcel(dest);
   p.state = 'robot';
@@ -107,7 +145,8 @@ function startJob(dest) {
   p.mesh.position.set(PICK.x, STACK_TOP + p.h / 2, PICK.z);
   p.mesh.rotation.set(0, pk.yaw, 0);
   scene.add(p.mesh);
-  const at = (c, y, r) => Object.assign({}, c, { y, rot: r });
+  /** @type {(c: { yaw: number, r: number }, y: number, rot: number) => Pose} */
+  const at = (c, y, rot) => ({ ...c, y, rot });
   rob.steps = [
     { to: at(pk, STACK_TOP + p.h + 0.45, 0), dur: 0.9, status: 'Picking' },
     { to: at(pk, STACK_TOP + p.h, 0), dur: 0.45, end() { rob.carry = p; } },
@@ -119,30 +158,30 @@ function startJob(dest) {
   ];
 }
 
+/** @param {number} dt seconds */
 export function updateRobot(dt) {
   if (!rob.cur) {
-    if (!rob.steps.length && rob.queue.length) startJob(rob.queue.shift());
-    if (rob.steps.length) {
-      rob.cur = rob.steps.shift();
-      rob.cur.t = 0;
-      rob.cur.from = Object.assign({}, rob.pose);
-      if (rob.cur.status) rob.status = rob.cur.status;
+    if (!rob.steps.length) { const next = rob.queue.shift(); if (next) startJob(next); }
+    const step = rob.steps.shift();
+    if (step) {
+      rob.cur = { step, t: 0, from: { ...rob.pose } };
+      if (step.status) rob.status = step.status;
     } else {
       rob.status = 'Idle';
     }
   }
-  const s = rob.cur;
-  if (s && s.wait) {
+  const cur = rob.cur, s = cur && cur.step;
+  if (s && 'wait' in s) {
     if (s.wait()) rob.cur = null;
-  } else if (s) {
-    s.t += dt;
-    const k = smooth(Math.min(1, s.t / s.dur));
-    const f = s.from, to = s.to;
+  } else if (cur && s) {
+    cur.t += dt;
+    const k = smooth(Math.min(1, cur.t / s.dur));
+    const f = cur.from, to = s.to;
     rob.pose.yaw = f.yaw + wrapAngle(to.yaw - f.yaw) * k;
     rob.pose.r = f.r + (to.r - f.r) * k;
     rob.pose.y = f.y + (to.y - f.y) * k;
     rob.pose.rot = f.rot + (to.rot - f.rot) * k;
-    if (s.t >= s.dur) { rob.cur = null; if (s.end) s.end(); }
+    if (cur.t >= s.dur) { rob.cur = null; if (s.end) s.end(); }
   }
   setPose(rob.pose);
   const p = rob.carry;

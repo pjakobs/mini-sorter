@@ -1,0 +1,18 @@
+{
+  // Type-checks the plain JavaScript (npm test runs tsc --noEmit). Nothing is compiled:
+  // the browser and Vercel serve the .js files as they are.
+  "compilerOptions": {
+    "allowJs": true,
+    "checkJs": true,
+    "noEmit": true,
+    "strict": true,
+    "target": "es2022",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "types": ["node"],
+    "skipLibCheck": true,
+    "moduleDetection": "force"
+  },
+  "include": ["js", "tests"]
+}

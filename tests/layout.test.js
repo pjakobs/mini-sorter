@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { L, R, P, BACK0, IND, INDUCT_ANGLE, pathAt, crossed, mod } from '../js/layout.js';
 
+/** @type {(a: number, b: number, eps: number, msg: string) => void} */
 const close = (a, b, eps, msg) => assert.ok(Math.abs(a - b) <= eps, `${msg}: ${a} vs ${b}`);
 
 test('loop length is two straights plus two half circles', () => {

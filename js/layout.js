@@ -20,14 +20,29 @@ export const BL = 7, BW = 0.9, BY = TRAY_Y + 0.04; // infeed belt length, width,
 
 export const COL = Object.freeze({ A: 0x1f8a8a, B: 0xd9622b, bg: 0xe3e8ec, yellow: 0xf2b705 });
 
+/** @type {(a: number, m?: number) => number} */
 export const mod = (a, m = P) => ((a % m) + m) % m;
+/** @type {(t: number) => number} */
 export const smooth = t => t * t * (3 - 2 * t);
+/** @type {(a: number) => number} */
 export const wrapAngle = a => Math.atan2(Math.sin(a), Math.cos(a));
+/** @type {(a: number, b: number) => number} */
 export const rand = (a, b) => a + Math.random() * (b - a);
+/** @type {<T>(a: ArrayLike<T>) => T} */
 export const pick = a => a[Math.floor(Math.random() * a.length)];
 
-// Position, heading and outward normal at distance s along the loop
-export function pathAt(s, o = {}) {
+/**
+ * A point on the loop: position, heading (unit vector along travel), yaw and outward normal
+ * @typedef {{ x: number, z: number, hx: number, hz: number, yaw: number, ox: number, oz: number }} PathPoint
+ */
+
+/**
+ * Position, heading and outward normal at distance s along the loop. Pass o to reuse an object.
+ * @param {number} s
+ * @param {PathPoint} [o]
+ * @returns {PathPoint}
+ */
+export function pathAt(s, o = { x: 0, z: 0, hx: 0, hz: 0, yaw: 0, ox: 0, oz: 0 }) {
   s = mod(s);
   if (s < L) { o.x = -L / 2 + s; o.z = R; o.hx = 1; o.hz = 0; }
   else if (s < BACK0) { const t = (s - L) / R; o.x = L / 2 + R * Math.sin(t); o.z = R * Math.cos(t); o.hx = Math.cos(t); o.hz = -Math.sin(t); }
@@ -38,7 +53,12 @@ export function pathAt(s, o = {}) {
   return o;
 }
 
-// Did a point moving from prev to cur along the loop pass target?
+/**
+ * Did a point moving from prev to cur along the loop pass target?
+ * @param {number} prev
+ * @param {number} cur
+ * @param {number} target
+ */
 export function crossed(prev, cur, target) {
   const d2 = mod(cur - prev), d1 = mod(target - prev);
   return d2 > 0 && d2 < P / 2 && d1 > 0 && d1 <= d2;

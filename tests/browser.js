@@ -22,13 +22,16 @@ const CHROME = [
 // Pass as the test's skip option
 export const skip = CHROME ? false : 'Chrome not found; set CHROME_PATH to run the browser tests';
 
+/** @type {Record<string, string>} */
 const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
-let server, base, profile, runs = 0;
+/** @type {import('node:http').Server | undefined} */
+let server;
+let base = '', profile = '', runs = 0;
 
 export async function startServer() {
   if (skip) return;
   server = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
+    const path = normalize(decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
     try {
       const body = await readFile(join(ROOT, path));
       res.writeHead(200, { 'content-type': TYPES[extname(path)] || 'application/octet-stream' });
@@ -37,8 +40,11 @@ export async function startServer() {
       res.writeHead(404).end();
     }
   });
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  base = `http://127.0.0.1:${server.address().port}`;
+  const s = server;
+  await new Promise(r => s.listen(0, '127.0.0.1', () => r(undefined)));
+  const addr = s.address();
+  if (!addr || typeof addr === 'string') throw new Error('Test server has no port');
+  base = `http://127.0.0.1:${addr.port}`;
   profile = await mkdtemp(join(tmpdir(), 'mini-sorter-chrome-'));
 }
 
@@ -47,7 +53,13 @@ export async function stopServer() {
   if (profile) await rm(profile, { recursive: true, force: true });
 }
 
-// Loads path (e.g. 'tests/sim.html?scenario=flow') and resolves with the page's result
+/**
+ * Loads path (e.g. 'tests/sim.html?scenario=flow') and resolves with the page's result.
+ * The result is parsed JSON, so T is what the caller expects the page to report.
+ * @template T
+ * @param {string} path
+ * @returns {Promise<T>}
+ */
 export function runPage(path) {
   const dir = `${profile}-${++runs}`;
   const args = [
@@ -56,7 +68,7 @@ export function runPage(path) {
     '--virtual-time-budget=20000', '--dump-dom', `${base}/${path}`,
   ];
   return new Promise((resolve, reject) => {
-    execFile(CHROME, args, { timeout: 90_000, maxBuffer: 16 * 1024 * 1024 }, async (err, stdout, stderr) => {
+    execFile(/** @type {string} skip is set when Chrome is missing */ (CHROME), args, { timeout: 90_000, maxBuffer: 16 * 1024 * 1024 }, async (err, stdout, stderr) => {
       await rm(dir, { recursive: true, force: true });
       const m = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/);
       const text = m && m[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');

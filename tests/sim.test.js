@@ -6,8 +6,15 @@ import { skip, startServer, stopServer, runPage } from './browser.js';
 
 before(startServer);
 after(stopServer);
+/** @typedef {import('./sim-harness.js').SimResults} SimResults */
+/**
+ * @template {keyof SimResults} K
+ * @param {K} name
+ * @returns {Promise<SimResults[K]>}
+ */
 const runScenario = name => runPage(`tests/sim.html?scenario=${name}`);
 
+/** @param {import('./sim-harness.js').Summary} r @param {'A' | 'B'} key */
 const sortedInto = (r, key) => r.bins[key].length;
 
 test('six parcels are weighed, scanned, measured and sorted to their own chute', { skip }, async () => {

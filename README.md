@@ -23,8 +23,15 @@ Then open the address it prints. It needs an internet connection to load Three.j
 npm test
 ```
 
-There is nothing to install: it uses Node's built-in test runner (Node 20 or newer).
+Run `npm install` once first: it installs TypeScript and the type definitions for Three.js and Node,
+which are only used for checking. Needs Node 22 or newer.
 
+`npm test` first type-checks all the JavaScript (`npm run typecheck` does only that), then runs the tests:
+
+- The type check uses the JSDoc type comments in the code and the settings in `tsconfig.json`
+  (`checkJs`, `strict`). Nothing is compiled: the browser and Vercel serve the `.js` files as they are.
+  The main types are `Parcel` in `js/parcels.js`, `Carrier` and `Chute` in `js/sorter.js` and the
+  robot's `Pose` and job steps in `js/robot.js`.
 - `tests/layout.test.js` checks the loop geometry in Node.
 - `tests/sim.test.js` runs scenarios from `tests/sim.html` in headless Chrome and checks the outcome: parcels pass all three infeed stations and reach the right chute, a closed chute makes parcels go round again, a full bin stops taking parcels, and nothing moves onto the loop when the sorter is stopped.
 - `tests/ui.test.js` loads the real page in `tests/ui.html` and uses its controls: the speed slider, clicking the belt and a parcel, the robot's queue limit, auto-feed, and closing, emptying and reopening chutes. It checks what the panels show after each step.

@@ -4,6 +4,15 @@
   "description": "3D tilt-tray loop sorter simulator",
   "type": "module",
   "scripts": {
-    "test": "node --test"
+    "test": "tsc --noEmit && node --test",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.5",
+    "@types/three": "^0.128.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

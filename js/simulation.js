@@ -6,6 +6,7 @@ import { requestPick, robotStatus, updateRobot } from './robot.js';
 
 let autoTimer = 0, wasAuto = false;
 
+/** @param {number} dt seconds */
 export function step(dt) {
   moveCarriers(dt);
   updateInfeed(dt);

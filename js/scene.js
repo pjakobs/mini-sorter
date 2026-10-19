@@ -3,7 +3,9 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { COL } from './layout.js';
 
-export const canvas = document.getElementById('scene');
+const sceneEl = document.getElementById('scene');
+if (!(sceneEl instanceof HTMLCanvasElement)) throw new Error('index.html needs <canvas id="scene">');
+export const canvas = sceneEl;
 export const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
 renderer.shadowMap.enabled = true;
@@ -31,6 +33,7 @@ Object.assign(sun.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, n
 sun.shadow.bias = -0.0005;
 scene.add(sun);
 
+/** @type {(color: number, o?: THREE.MeshStandardMaterialParameters) => THREE.MeshStandardMaterial} */
 export const mat = (color, o = {}) => new THREE.MeshStandardMaterial(Object.assign({ color, roughness: 0.75, metalness: 0.05 }, o));
 export const M = {
   floor: mat(0xd2d8dd, { roughness: 0.95 }),
@@ -46,12 +49,33 @@ export const M = {
   scanLine: new THREE.MeshBasicMaterial({ color: 0xff3b30 }),
 };
 
+/**
+ * Adds a w × h × d box centred at (x, y, z) to parent and returns it
+ * @param {number} w
+ * @param {number} h
+ * @param {number} d
+ * @param {THREE.Material} material
+ * @param {THREE.Object3D} [parent]
+ */
 export function box(w, h, d, material, x = 0, y = 0, z = 0, parent = scene) {
   const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), material);
   m.position.set(x, y, z);
   m.castShadow = true; m.receiveShadow = true;
   parent.add(m);
   return m;
+}
+
+/**
+ * A canvas of w × h pixels and its 2D drawing context, for textures
+ * @param {number} w
+ * @returns {[HTMLCanvasElement, CanvasRenderingContext2D]}
+ */
+export function drawing(w, h = w) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d');
+  if (!x) throw new Error('2D canvas not available');
+  return [c, x];
 }
 
 // Floor with faint grid of 1 m tiles

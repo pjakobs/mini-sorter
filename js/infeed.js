@@ -2,16 +2,26 @@
 // The belt geometry and the parcels on it are private; other modules use the functions marked Public.
 import * as THREE from 'three';
 import { TRAY_Y, TRAY_W, MERGE_DEC, S_INDUCT, BL, BW, BY, IND, BELT_DIR, BELT_YAW, rand } from './layout.js';
-import { scene, mat, M, box } from './scene.js';
+import { scene, mat, M, box, drawing } from './scene.js';
 import { settings } from './state.js';
 import { newParcel, addParcel } from './parcels.js';
 import { freeTrayAt, reserveTray, loadTray } from './sorter.js';
 
-const events = new EventTarget();
-const emit = (type, p) => events.dispatchEvent(new CustomEvent(type, { detail: p }));
-// Public: calls fn(parcel) whenever a parcel is 'weighed', 'scanned' or 'measured'
+/** @typedef {import('./parcels.js').Parcel} Parcel */
+/** @typedef {import('./parcels.js').DestChoice} DestChoice */
+/** @typedef {'weighed' | 'scanned' | 'measured'} StationReading */
+
+/** @type {Record<StationReading, ((p: Parcel) => void)[]>} */
+const listeners = { weighed: [], scanned: [], measured: [] };
+/** @param {StationReading} type @param {Parcel} p */
+const emit = (type, p) => listeners[type].forEach(fn => fn(p));
+/**
+ * Public: calls fn(parcel) whenever a parcel is weighed, scanned or measured
+ * @param {StationReading} type
+ * @param {(p: Parcel) => void} fn
+ */
 export function onInfeed(type, fn) {
-  events.addEventListener(type, e => fn(e.detail));
+  listeners[type].push(fn);
 }
 
 // ---------- Belt ----------
@@ -30,8 +40,7 @@ for (const z of [-1, 1]) {
   for (const x of [-BL / 2 + 0.4, 0, BL / 2 - 0.4]) box(0.1, BY - 0.17, 0.1, M.steel, x, (BY - 0.17) / 2, z * (BW / 2 - 0.05), belt);
 }
 const beltTex = (() => {
-  const c = document.createElement('canvas'); c.width = 64; c.height = 64;
-  const x = c.getContext('2d');
+  const [c, x] = drawing(64);
   x.fillStyle = '#2b333b'; x.fillRect(0, 0, 64, 64);
   x.fillStyle = '#3a444e'; x.fillRect(0, 0, 10, 64);
   const t = new THREE.CanvasTexture(c);
@@ -51,6 +60,7 @@ belt.add(beltTop);
   const zEdge = IND.z + TRAY_W / 2 + 0.04;
   const c1 = beltEnd.clone().addScaledVector(beltPerp, -BW / 2);
   const c2 = beltEnd.clone().addScaledVector(beltPerp, BW / 2);
+  /** @param {THREE.Vector3} c */
   const toEdge = c => c.clone().addScaledVector(beltDir, (c.z - zEdge) / -beltDir.z);
   const a = toEdge(c1), b = toEdge(c2);
   const quad = [c1, a, b, c2];
@@ -143,11 +153,10 @@ for (const dx of [-1, 1]) for (const dz of [-1, 1]) {
 const dispZ = -(BW / 2 + 0.3);
 box(0.06, BY + 0.5, 0.06, M.frame, weighX, (BY + 0.5) / 2, dispZ, belt);
 box(0.5, 0.3, 0.08, mat(0x1d2329), weighX, BY + 0.62, dispZ, belt);
-const dispCanvas = document.createElement('canvas');
-dispCanvas.width = 256; dispCanvas.height = 128;
+const [dispCanvas, x] = drawing(256, 128);
 const dispTex = new THREE.CanvasTexture(dispCanvas);
+/** @param {string} text @param {boolean} lit */
 function drawDisplay(text, lit) {
-  const x = dispCanvas.getContext('2d');
   x.fillStyle = '#0d1a12'; x.fillRect(0, 0, 256, 128);
   x.fillStyle = lit ? '#7dffb0' : '#3ddc84';
   x.font = '500 64px "JetBrains Mono", ui-monospace, monospace';
@@ -165,6 +174,7 @@ let weighFlash = 0, lastWeigh = '0.00';
 
 // ---------- Stations ----------
 // Dynamic scale: ±10 g resolution while the parcel moves across the weighing section
+/** @param {Parcel} p */
 function weigh(p) {
   p.weighed = { kg: Math.max(0.05, Math.round((p.kg + rand(-0.01, 0.01)) * 100) / 100) };
   lastWeigh = p.weighed.kg.toFixed(2);
@@ -172,40 +182,59 @@ function weigh(p) {
   weighFlash = 0.35;
   emit('weighed', p);
 }
+/** @param {Parcel} p */
 function scanLabel(p) {
   p.scanned = { ms: Math.round(rand(8, 24)), at: new Date().toLocaleTimeString('en-GB') };
   readFlash = 0.35;
   emit('scanned', p);
 }
 // Light grid: measures each parcel as its centre passes the curtain (±2 mm resolution)
+/** @param {Parcel} p */
 function measure(p) {
+  /** @param {number} x metres */
   const mm = x => Math.round(x * 1000 + rand(-2, 2));
-  p.measured = { L: mm(p.l), W: mm(p.w), H: mm(p.h) };
-  p.measured.vol = (p.measured.L * p.measured.W * p.measured.H / 1e6).toFixed(1);
+  const L = mm(p.l), W = mm(p.w), H = mm(p.h);
+  p.measured = { L, W, H, vol: (L * W * H / 1e6).toFixed(1) };
   scanFlash = 0.35;
   emit('measured', p);
 }
 
 // ---------- Parcels on the belt ----------
-const beltQ = [];   // parcels on the belt, sorted by t descending (front first)
-const merging = []; // parcels sliding from the belt end onto their tray
+/** @type {Parcel[]} parcels on the belt, sorted by t descending (front first) */
+const beltQ = [];
+/**
+ * Parcels sliding from the belt end onto their tray; lat = distance still to go sideways (m)
+ * @type {{ p: Parcel, c: import('./sorter.js').Carrier, lat: number }[]}
+ */
+const merging = [];
 
-// Public: a point on the floor, along metres from the belt start (negative is before it)
-// and across metres to the right of its centreline
+/**
+ * Public: a point on the floor, along metres from the belt start (negative is before it)
+ * and across metres to the right of its centreline
+ * @param {number} along
+ */
 export function beltPoint(along, across = 0) {
   return beltStart.clone().addScaledVector(beltDir, along).addScaledVector(beltPerp, across).setY(0);
 }
-// Public: where a raycaster hits the belt top, or undefined
+/** @type {(ray: THREE.Raycaster) => THREE.Intersection | undefined} Public: where a raycaster hits the belt top */
 export const beltHit = ray => ray.intersectObject(beltTop)[0];
 export const beltCount = () => beltQ.length;
-// Public: is p the head parcel, waiting at the belt end for a free tray?
+/** @type {(p: Parcel) => boolean} Public: is p the head parcel, waiting at the belt end for a free tray? */
 export const isWaitingToMerge = p => beltQ[0] === p && isAtBeltEnd(p);
 
-// Public: is there room for a parcel of footprint length e at distance t along the belt?
+/**
+ * Public: is there room for a parcel of footprint length e at distance t along the belt?
+ * @param {number} t
+ * @param {number} e
+ */
 export function canPlace(t, e) {
   return beltQ.every(q => Math.abs(q.t - t) >= (q.e + e) / 2 + 0.06);
 }
-// Public: creates a parcel directly on the belt at distance t from its start (used for the opening state)
+/**
+ * Public: creates a parcel directly on the belt at distance t from its start (used for the opening state)
+ * @param {number} t
+ * @param {DestChoice} dest
+ */
 export function placeOnBelt(t, dest) {
   const p = newParcel(dest);
   t = Math.min(Math.max(t, p.e / 2), BL - p.e / 2);
@@ -214,7 +243,11 @@ export function placeOnBelt(t, dest) {
   putOnBelt(p, t);
   return true;
 }
-// Public: hands an existing parcel (already in the scene) to the belt
+/**
+ * Public: hands an existing parcel (already in the scene) to the belt
+ * @param {Parcel} p
+ * @param {number} t
+ */
 export function putOnBelt(p, t) {
   p.state = 'belt';
   p.t = t;
@@ -223,14 +256,17 @@ export function putOnBelt(p, t) {
   beltQ.sort((a, b) => b.t - a.t);
   positionOnBelt(p);
 }
+/** @param {Parcel} p */
 function positionOnBelt(p) {
   p.mesh.position.copy(beltStart).addScaledVector(beltDir, p.t).setY(BY + p.h / 2);
   p.mesh.rotation.set(0, IND.yaw, 0);
 }
+/** @param {Parcel} p */
 const isAtBeltEnd = p => p.t >= BL - p.e / 2 - 0.03;
 
 let beltTravel = 0;
 // Public: one simulation step of the belt, the stations and merging parcels
+/** @param {number} dt seconds */
 export function updateInfeed(dt) {
   const v = settings.speed;
   const bs = v === 0 ? 0 : Math.min(1.6, 0.45 + 0.4 * v);
@@ -258,23 +294,22 @@ export function updateInfeed(dt) {
     if (c) {
       beltQ.shift();
       head.state = 'inducting'; head.carrier = c;
-      head.lat = (hp.x - IND.x) * IND.ox + (hp.z - IND.z) * IND.oz;
       reserveTray(c, head);
-      merging.push(head);
+      merging.push({ p: head, c, lat: (hp.x - IND.x) * IND.ox + (hp.z - IND.z) * IND.oz });
     }
   }
 
   // Lateral speed equals sorter speed (45° merge) until the parcel is on the tray,
   // then tray friction brings it to rest at the tray centre.
-  for (const p of merging.slice()) {
-    const c = p.carrier;
-    const vl = p.lat > MERGE_DEC ? v : v * Math.max(0.12, Math.sqrt(p.lat / MERGE_DEC));
-    p.lat = Math.max(0, p.lat - vl * dt);
+  for (const m of merging.slice()) {
+    const { p, c } = m;
+    const vl = m.lat > MERGE_DEC ? v : v * Math.max(0.12, Math.sqrt(m.lat / MERGE_DEC));
+    m.lat = Math.max(0, m.lat - vl * dt);
     const edge = TRAY_W / 2 + 0.04;
-    const lift = Math.min(1, Math.max(0, (p.lat - (edge - 0.15)) / 0.15)) * (BY - TRAY_Y);
-    p.mesh.position.set(c.x + IND.ox * p.lat, TRAY_Y + p.h / 2 + lift, c.z + IND.oz * p.lat);
+    const lift = Math.min(1, Math.max(0, (m.lat - (edge - 0.15)) / 0.15)) * (BY - TRAY_Y);
+    p.mesh.position.set(c.x + IND.ox * m.lat, TRAY_Y + p.h / 2 + lift, c.z + IND.oz * m.lat);
     p.mesh.rotation.set(0, c.yaw, 0);
-    if (p.lat <= 0) { merging.splice(merging.indexOf(p), 1); loadTray(c, p); }
+    if (m.lat <= 0) { merging.splice(merging.indexOf(m), 1); loadTray(c, p); }
   }
 
   // Station lights fade after each reading
