@@ -26,7 +26,10 @@ npm test
 There is nothing to install: it uses Node's built-in test runner (Node 20 or newer).
 
 - `tests/layout.test.js` checks the loop geometry in Node.
-- `tests/sim.test.js` serves the project, runs scenarios from `tests/sim.html` in headless Chrome and checks the outcome: parcels pass all three infeed stations and reach the right chute, a closed chute makes parcels go round again, a full bin stops taking parcels, and nothing moves onto the loop when the sorter is stopped. It needs Chrome (set `CHROME_PATH` if it isn't in the usual place; without Chrome these tests are skipped) and an internet connection for Three.js.
+- `tests/sim.test.js` runs scenarios from `tests/sim.html` in headless Chrome and checks the outcome: parcels pass all three infeed stations and reach the right chute, a closed chute makes parcels go round again, a full bin stops taking parcels, and nothing moves onto the loop when the sorter is stopped.
+- `tests/ui.test.js` loads the real page in `tests/ui.html` and uses its controls: the speed slider, clicking the belt and a parcel, the robot's queue limit, auto-feed, and closing, emptying and reopening chutes. It checks what the panels show after each step.
+
+The browser tests share `tests/browser.js`, which serves the project and runs Chrome. They need Chrome (set `CHROME_PATH` if it isn't in the usual place; without Chrome they are skipped) and an internet connection for Three.js.
 
 ## Code
 

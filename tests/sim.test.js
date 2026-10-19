@@ -1,73 +1,12 @@
-// End-to-end simulation tests: serves the project, runs each scenario in tests/sim.html with
-// headless Chrome and checks the outcome. Needs Chrome (or set CHROME_PATH) and an internet
-// connection, because Three.js loads from a CDN.
+// End-to-end simulation tests: runs each scenario in tests/sim.html with headless Chrome
+// (see browser.js) and checks the outcome.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { createServer } from 'node:http';
-import { readFile, mkdtemp, rm } from 'node:fs/promises';
-import { existsSync } from 'node:fs';
-import { execFile } from 'node:child_process';
-import { tmpdir } from 'node:os';
-import { join, extname, normalize } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { skip, startServer, stopServer, runPage } from './browser.js';
 
-const ROOT = fileURLToPath(new URL('..', import.meta.url));
-const CHROME = [
-  process.env.CHROME_PATH,
-  '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
-  '/Applications/Chromium.app/Contents/MacOS/Chromium',
-  '/usr/bin/google-chrome',
-  '/usr/bin/chromium',
-  '/usr/bin/chromium-browser',
-].find(p => p && existsSync(p));
-const skip = CHROME ? false : 'Chrome not found; set CHROME_PATH to run the simulation tests';
-
-const TYPES = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json' };
-let server, base, profile;
-
-before(async () => {
-  if (skip) return;
-  server = createServer(async (req, res) => {
-    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^(\.\.[/\\])+/, '');
-    try {
-      const body = await readFile(join(ROOT, path));
-      res.writeHead(200, { 'content-type': TYPES[extname(path)] || 'application/octet-stream' });
-      res.end(body);
-    } catch {
-      res.writeHead(404).end();
-    }
-  });
-  await new Promise(r => server.listen(0, '127.0.0.1', r));
-  base = `http://127.0.0.1:${server.address().port}`;
-  profile = await mkdtemp(join(tmpdir(), 'mini-sorter-chrome-'));
-});
-
-after(async () => {
-  server?.close();
-  if (profile) await rm(profile, { recursive: true, force: true });
-});
-
-function runScenario(name) {
-  const args = [
-    '--headless=new', `--user-data-dir=${profile}-${name}`, '--no-first-run', '--no-default-browser-check',
-    '--enable-unsafe-swiftshader', '--use-angle=swiftshader', '--enable-logging=stderr',
-    '--virtual-time-budget=20000', '--dump-dom', `${base}/tests/sim.html?scenario=${name}`,
-  ];
-  return new Promise((resolve, reject) => {
-    execFile(CHROME, args, { timeout: 90_000, maxBuffer: 16 * 1024 * 1024 }, async (err, stdout, stderr) => {
-      await rm(`${profile}-${name}`, { recursive: true, force: true });
-      const m = stdout.match(/<pre id="result">([\s\S]*?)<\/pre>/);
-      const text = m && m[1].replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
-      if (!text) {
-        const console = stderr.split('\n').filter(l => l.includes('CONSOLE')).join('\n');
-        return reject(new Error(`No result from scenario "${name}"${err ? ': ' + err.message : ''}\n${console}`));
-      }
-      const data = JSON.parse(text);
-      if (!data.ok) return reject(new Error(`Scenario "${name}" threw:\n${data.error}`));
-      resolve(data.result);
-    });
-  });
-}
+before(startServer);
+after(stopServer);
+const runScenario = name => runPage(`tests/sim.html?scenario=${name}`);
 
 const sortedInto = (r, key) => r.bins[key].length;
 

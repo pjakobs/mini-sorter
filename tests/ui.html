@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>UI test</title>
+<link rel="stylesheet" href="../style.css">
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.128.0/build/three.module.js",
+    "three/examples/jsm/": "https://cdn.jsdelivr.net/npm/three@0.128.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="ui-harness.js"></script>
+</head>
+<body>
+<!-- Loads the real page's markup and modules, clicks through the controls and writes what the
+     panels showed as JSON into #result. Driven by ui.test.js through headless Chrome. -->
+<pre id="result"></pre>
+</body>
+</html>
