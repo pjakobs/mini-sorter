@@ -38,6 +38,8 @@ which are only used for checking. Needs Node 22 or newer.
 
 The browser tests share `tests/browser.js`, which serves the project and runs Chrome. They need Chrome (set `CHROME_PATH` if it isn't in the usual place; without Chrome they are skipped) and an internet connection for Three.js.
 
+GitHub runs `npm test` on every push and pull request (`.github/workflows/test.yml`); the result shows next to each commit on GitHub.
+
 ## Code
 
 | File | What it holds |

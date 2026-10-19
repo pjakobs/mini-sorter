@@ -19,6 +19,8 @@ const CHROME = [
   '/usr/bin/chromium',
   '/usr/bin/chromium-browser',
 ].find(p => p && existsSync(p));
+// A CHROME_PATH that doesn't exist is a mistake, not a reason to skip (CI sets it so the tests can't silently skip)
+if (process.env.CHROME_PATH && CHROME !== process.env.CHROME_PATH) throw new Error('CHROME_PATH not found: ' + process.env.CHROME_PATH);
 // Pass as the test's skip option
 export const skip = CHROME ? false : 'Chrome not found; set CHROME_PATH to run the browser tests';
 

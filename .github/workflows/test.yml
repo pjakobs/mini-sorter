@@ -1,0 +1,22 @@
+# Runs npm test (type check, then the Node and headless Chrome tests) on every push and pull request.
+# GitHub's Ubuntu machines come with Chrome installed.
+name: Test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CHROME_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: lts/*
+          cache: npm
+      - run: npm ci
+      - run: npm test
