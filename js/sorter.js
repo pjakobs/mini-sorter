@@ -1,9 +1,10 @@
 // The loop: frame, tilting trays, outfeed chutes and bins, and parcels from the tray onwards.
+// Trays, chutes and the sort counters are private; the infeed and the UI use the functions below.
 import * as THREE from 'three';
 import { L, R, P, BACK0, N, PITCH, TRAY_Y, TRAY_L, TRAY_W, K_DAMP, CAP, CH, COL, mod, rand, pathAt, crossed } from './layout.js';
 import { scene, mat, M, box } from './scene.js';
-import { settings, stats } from './state.js';
-import { parcels, removeParcel } from './parcels.js';
+import { settings } from './state.js';
+import { allParcels, removeParcel } from './parcels.js';
 
 // ---------- Loop frame ----------
 function stadium(r, path) {
@@ -37,7 +38,8 @@ for (let k = 0; k < 18; k++) {
 }
 
 // ---------- Carriers ----------
-export const carriers = [];
+// A carrier is also a handle other modules hold (parcel.carrier); they may read i, x, z and yaw.
+const carriers = [];
 const baseGeo = new THREE.BoxGeometry(0.6, 0.3, 0.5);
 const trayGeo = new THREE.BoxGeometry(TRAY_L, 0.05, TRAY_W);
 for (let i = 0; i < N; i++) {
@@ -53,7 +55,7 @@ for (let i = 0; i < N; i++) {
   pivot.add(tray);
   g.add(pivot);
   scene.add(g);
-  carriers.push({ i, g, pivot, s: i * PITCH, prevS: i * PITCH, parcel: null, reserved: null, tiltT: -1 });
+  carriers.push({ i, g, pivot, s: i * PITCH, prevS: i * PITCH, x: 0, z: 0, yaw: 0, parcel: null, reserved: null, tiltT: -1 });
 }
 
 // ---------- Chutes ----------
@@ -101,21 +103,62 @@ function makeChute(key, s) {
   for (const z of [0.35, 0.9, 1.45]) for (const x of [-0.58, 0, 0.58]) slots.push({ x, z: CH.z0 + CH.Lc + z, p: null });
   return { key, s, p, g, slots, count: 0, open: true, lampMat };
 }
-export const chutes = { A: makeChute('A', BACK0 + 3.5), B: makeChute('B', BACK0 + 8) };
+const chutes = { A: makeChute('A', BACK0 + 3.5), B: makeChute('B', BACK0 + 8) };
+const stats = { A: 0, B: 0, recirc: 0 };
 
 // 'open', 'full' or 'closed'
-export function chuteStatus(ch) {
+function chuteStatus(ch) {
   return !ch.open ? 'closed' : ch.count >= CAP ? 'full' : 'open';
+}
+// The lamp on the sign post shows the chute's status
+function showStatus(ch) {
+  const status = chuteStatus(ch);
+  ch.lampMat.color.setHex(status === 'open' ? 0x2e8b57 : status === 'full' ? 0xf2b705 : 0xc0392b);
+}
+
+// ---------- Public ----------
+// A snapshot of chute 'A' or 'B': status, whether it is open, parcels assigned to it (sliding or
+// in the bin) and the destinations of the parcels in the bin
+export function chuteInfo(key) {
+  const ch = chutes[key];
+  return { status: chuteStatus(ch), open: ch.open, count: ch.count, bin: ch.slots.filter(s => s.p).map(s => s.p.dest) };
+}
+
+export function setChuteOpen(key, open) {
+  chutes[key].open = open;
+  showStatus(chutes[key]);
 }
 
 // Takes the parcels that have landed in a chute's bin away; returns how many were removed
-export function emptyChute(ch) {
+export function emptyChute(key) {
+  const ch = chutes[key];
   let n = 0;
   for (const s of ch.slots) {
     if (s.p && s.p.bt >= 1) { s.p.state = 'removing'; s.p.rt = 0; s.p = null; n++; }
   }
   ch.count -= n;
+  showStatus(ch);
   return n;
+}
+
+// Sorted per chute and recirculations so far (a copy)
+export const sortStats = () => ({ ...stats });
+
+// The tray that passed loop position s during the last step, if it is free to take a parcel
+export function freeTrayAt(s) {
+  const c = carriers.find(c => crossed(c.prevS, c.s, s));
+  return c && !c.parcel && !c.reserved && c.tiltT < 0 ? c : null;
+}
+// A parcel starts merging onto tray c; nothing else may take it meanwhile
+export function reserveTray(c, p) {
+  c.reserved = p;
+}
+// The merging parcel has come to rest on tray c
+export function loadTray(c, p) {
+  p.state = 'carrier';
+  p.carrier = c;
+  c.parcel = p;
+  c.reserved = null;
 }
 
 // ---------- Motion ----------
@@ -131,9 +174,9 @@ export function moveCarriers(dt) {
     c.prevS = c.s;
     c.s = mod(c.i * PITCH + loopPos);
     pathAt(c.s, cp);
+    c.x = cp.x; c.z = cp.z; c.yaw = cp.yaw;
     c.g.position.set(cp.x, 0, cp.z);
     c.g.rotation.y = cp.yaw;
-    c.yaw = cp.yaw;
     if (c.tiltT >= 0) {
       c.tiltT += dt;
       const t = c.tiltT, max = 0.55;
@@ -149,6 +192,7 @@ export function moveCarriers(dt) {
           p.w = mod(c.s - ch.s + P / 2) - P / 2;
           p.u = 0; p.vu = 0.8; p.vw = v;
           ch.count++;
+          showStatus(ch);
           c.parcel = null; c.tiltT = 0;
         } else {
           stats.recirc++;
@@ -167,11 +211,10 @@ function chuteLocal(p, ch, w, y, u, tilt) {
 
 // Parcels riding a tray, sliding down a chute, landing in a bin or being collected
 export function updateSorterParcels(dt) {
-  for (let i = parcels.length - 1; i >= 0; i--) {
-    const p = parcels[i];
+  for (const p of allParcels()) {
     if (p.state === 'carrier') {
       const c = p.carrier;
-      p.mesh.position.set(c.g.position.x, TRAY_Y + p.h / 2, c.g.position.z);
+      p.mesh.position.set(c.x, TRAY_Y + p.h / 2, c.z);
       p.mesh.rotation.set(0, c.yaw + p.yawOff, 0);
     } else if (p.state === 'chute') {
       const ch = p.chute;

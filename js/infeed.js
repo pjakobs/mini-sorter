@@ -1,21 +1,25 @@
 // The infeed: belt, triangular merge belt, scale, label scanner and light grid, and the merge onto a tray.
+// The belt geometry and the parcels on it are private; other modules use the functions marked Public.
 import * as THREE from 'three';
-import { TRAY_Y, TRAY_W, MERGE_DEC, S_INDUCT, BL, BW, BY, IND, BELT_DIR, BELT_YAW, rand, crossed } from './layout.js';
+import { TRAY_Y, TRAY_W, MERGE_DEC, S_INDUCT, BL, BW, BY, IND, BELT_DIR, BELT_YAW, rand } from './layout.js';
 import { scene, mat, M, box } from './scene.js';
 import { settings } from './state.js';
-import { parcels, newParcel } from './parcels.js';
-import { carriers } from './sorter.js';
+import { newParcel, addParcel } from './parcels.js';
+import { freeTrayAt, reserveTray, loadTray } from './sorter.js';
 
-// Fires 'weighed', 'scanned' and 'measured' with the parcel as event.detail
-export const infeedEvents = new EventTarget();
-const emit = (type, p) => infeedEvents.dispatchEvent(new CustomEvent(type, { detail: p }));
+const events = new EventTarget();
+const emit = (type, p) => events.dispatchEvent(new CustomEvent(type, { detail: p }));
+// Public: calls fn(parcel) whenever a parcel is 'weighed', 'scanned' or 'measured'
+export function onInfeed(type, fn) {
+  events.addEventListener(type, e => fn(e.detail));
+}
 
 // ---------- Belt ----------
-export const beltDir = new THREE.Vector3(BELT_DIR.x, 0, BELT_DIR.z);
-export const beltPerp = new THREE.Vector3(-beltDir.z, 0, beltDir.x);
+const beltDir = new THREE.Vector3(BELT_DIR.x, 0, BELT_DIR.z);
+const beltPerp = new THREE.Vector3(-beltDir.z, 0, beltDir.x);
 // The belt centreline meets the loop at the induction point, so parcels run straight on.
 const beltEnd = new THREE.Vector3(IND.x + IND.ox * 1.15 - IND.hx * 1.15, BY, IND.z + IND.oz * 1.15 - IND.hz * 1.15);
-export const beltStart = beltEnd.clone().addScaledVector(beltDir, -BL);
+const beltStart = beltEnd.clone().addScaledVector(beltDir, -BL);
 const belt = new THREE.Group();
 belt.position.copy(beltStart).addScaledVector(beltDir, BL / 2).setY(0);
 belt.rotation.y = BELT_YAW;
@@ -36,7 +40,7 @@ const beltTex = (() => {
   return t;
 })();
 M.belt.map = beltTex;
-export const beltTop = new THREE.Mesh(new THREE.PlaneGeometry(BL, BW), M.belt);
+const beltTop = new THREE.Mesh(new THREE.PlaneGeometry(BL, BW), M.belt);
 beltTop.rotation.x = -Math.PI / 2;
 beltTop.position.y = BY + 0.001;
 beltTop.receiveShadow = true;
@@ -183,12 +187,25 @@ function measure(p) {
 }
 
 // ---------- Parcels on the belt ----------
-export const beltQ = []; // parcels on the belt, sorted by t descending (front first)
+const beltQ = [];   // parcels on the belt, sorted by t descending (front first)
+const merging = []; // parcels sliding from the belt end onto their tray
 
+// Public: a point on the floor, along metres from the belt start (negative is before it)
+// and across metres to the right of its centreline
+export function beltPoint(along, across = 0) {
+  return beltStart.clone().addScaledVector(beltDir, along).addScaledVector(beltPerp, across).setY(0);
+}
+// Public: where a raycaster hits the belt top, or undefined
+export const beltHit = ray => ray.intersectObject(beltTop)[0];
+export const beltCount = () => beltQ.length;
+// Public: is p the head parcel, waiting at the belt end for a free tray?
+export const isWaitingToMerge = p => beltQ[0] === p && isAtBeltEnd(p);
+
+// Public: is there room for a parcel of footprint length e at distance t along the belt?
 export function canPlace(t, e) {
   return beltQ.every(q => Math.abs(q.t - t) >= (q.e + e) / 2 + 0.06);
 }
-// Creates a parcel directly on the belt at distance t from its start (used for the opening state)
+// Public: creates a parcel directly on the belt at distance t from its start (used for the opening state)
 export function placeOnBelt(t, dest) {
   const p = newParcel(dest);
   t = Math.min(Math.max(t, p.e / 2), BL - p.e / 2);
@@ -197,11 +214,11 @@ export function placeOnBelt(t, dest) {
   putOnBelt(p, t);
   return true;
 }
-// Hands an existing parcel (already in the scene) to the belt
+// Public: hands an existing parcel (already in the scene) to the belt
 export function putOnBelt(p, t) {
   p.state = 'belt';
   p.t = t;
-  parcels.push(p);
+  addParcel(p);
   beltQ.push(p);
   beltQ.sort((a, b) => b.t - a.t);
   positionOnBelt(p);
@@ -210,9 +227,10 @@ function positionOnBelt(p) {
   p.mesh.position.copy(beltStart).addScaledVector(beltDir, p.t).setY(BY + p.h / 2);
   p.mesh.rotation.set(0, IND.yaw, 0);
 }
-export const isAtBeltEnd = p => p.t >= BL - p.e / 2 - 0.03;
+const isAtBeltEnd = p => p.t >= BL - p.e / 2 - 0.03;
 
 let beltTravel = 0;
+// Public: one simulation step of the belt, the stations and merging parcels
 export function updateInfeed(dt) {
   const v = settings.speed;
   const bs = v === 0 ? 0 : Math.min(1.6, 0.45 + 0.4 * v);
@@ -236,31 +254,27 @@ export function updateInfeed(dt) {
   if (head && v > 0.05 && isAtBeltEnd(head)) {
     const hp = head.mesh.position;
     const sp = S_INDUCT + (hp.x - IND.x) * IND.hx + (hp.z - IND.z) * IND.hz;
-    for (const c of carriers) {
-      if (crossed(c.prevS, c.s, sp)) {
-        if (!c.parcel && !c.reserved && c.tiltT < 0) {
-          beltQ.shift();
-          head.state = 'inducting'; head.carrier = c;
-          head.lat = (hp.x - IND.x) * IND.ox + (hp.z - IND.z) * IND.oz;
-          c.reserved = head;
-        }
-        break;
-      }
+    const c = freeTrayAt(sp);
+    if (c) {
+      beltQ.shift();
+      head.state = 'inducting'; head.carrier = c;
+      head.lat = (hp.x - IND.x) * IND.ox + (hp.z - IND.z) * IND.oz;
+      reserveTray(c, head);
+      merging.push(head);
     }
   }
 
   // Lateral speed equals sorter speed (45° merge) until the parcel is on the tray,
   // then tray friction brings it to rest at the tray centre.
-  for (const p of parcels) {
-    if (p.state !== 'inducting') continue;
+  for (const p of merging.slice()) {
     const c = p.carrier;
     const vl = p.lat > MERGE_DEC ? v : v * Math.max(0.12, Math.sqrt(p.lat / MERGE_DEC));
     p.lat = Math.max(0, p.lat - vl * dt);
     const edge = TRAY_W / 2 + 0.04;
     const lift = Math.min(1, Math.max(0, (p.lat - (edge - 0.15)) / 0.15)) * (BY - TRAY_Y);
-    p.mesh.position.set(c.g.position.x + IND.ox * p.lat, TRAY_Y + p.h / 2 + lift, c.g.position.z + IND.oz * p.lat);
+    p.mesh.position.set(c.x + IND.ox * p.lat, TRAY_Y + p.h / 2 + lift, c.z + IND.oz * p.lat);
     p.mesh.rotation.set(0, c.yaw, 0);
-    if (p.lat <= 0) { p.state = 'carrier'; c.parcel = p; c.reserved = null; }
+    if (p.lat <= 0) { merging.splice(merging.indexOf(p), 1); loadTray(c, p); }
   }
 
   // Station lights fade after each reading

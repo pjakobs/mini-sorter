@@ -2,16 +2,20 @@
 import { settings } from './state.js';
 import { moveCarriers, updateSorterParcels } from './sorter.js';
 import { updateInfeed } from './infeed.js';
-import { rob, updateRobot } from './robot.js';
+import { requestPick, robotStatus, updateRobot } from './robot.js';
+
+let autoTimer = 0, wasAuto = false;
 
 export function step(dt) {
   moveCarriers(dt);
   updateInfeed(dt);
   updateSorterParcels(dt);
-  // Auto-feed: hands the robot a new pick when it has nothing queued
+  // Auto-feed: hands the robot a new pick when it has nothing queued; the first one straight away
   if (settings.auto) {
-    settings.autoTimer += dt;
-    if (settings.autoTimer >= 60 / settings.rate && rob.queue.length === 0) { rob.queue.push(settings.dest); settings.autoTimer = 0; }
+    if (!wasAuto) autoTimer = 60 / settings.rate;
+    autoTimer += dt;
+    if (autoTimer >= 60 / settings.rate && robotStatus().queued === 0) { requestPick(settings.dest); autoTimer = 0; }
   }
+  wasAuto = settings.auto;
   updateRobot(dt);
 }

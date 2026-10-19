@@ -2,11 +2,11 @@
 import * as THREE from 'three';
 import { N, PITCH, CAP } from './layout.js';
 import { canvas, camera } from './scene.js';
-import { settings, stats } from './state.js';
-import { parcels, ROUTES } from './parcels.js';
-import { chutes, chuteStatus, emptyChute } from './sorter.js';
-import { beltTop, beltQ, isAtBeltEnd, infeedEvents } from './infeed.js';
-import { rob, requestPick } from './robot.js';
+import { settings } from './state.js';
+import { allParcels, ROUTES } from './parcels.js';
+import { chuteInfo, setChuteOpen, emptyChute, sortStats } from './sorter.js';
+import { beltHit, beltCount, isWaitingToMerge, onInfeed } from './infeed.js';
+import { robotStatus, requestPick } from './robot.js';
 
 const $ = id => document.getElementById(id);
 const pid = p => 'P-' + String(p.id).padStart(5, '0');
@@ -35,12 +35,13 @@ function placeParcel() {
   if (!requestPick(settings.dest)) toast('The robot already has 5 parcels queued. Wait for it to catch up.');
 }
 
+const chuteEls = {};
 function bindControls() {
   $('speed').addEventListener('input', e => setSpeed(parseFloat(e.target.value)));
   setSpeed(settings.speed);
   document.querySelectorAll('input[name="dest"]').forEach(r => r.addEventListener('change', e => { settings.dest = e.target.value; }));
   $('place').addEventListener('click', placeParcel);
-  $('auto').addEventListener('change', e => { settings.auto = e.target.checked; settings.autoTimer = 60 / settings.rate; });
+  $('auto').addEventListener('change', e => { settings.auto = e.target.checked; });
   $('rate').addEventListener('input', e => { settings.rate = parseInt(e.target.value, 10); $('rateOut').textContent = settings.rate + ' / min'; });
   window.addEventListener('keydown', e => {
     if (e.code === 'Space' && !(e.target instanceof HTMLInputElement) && !(e.target instanceof HTMLButtonElement)) {
@@ -50,16 +51,16 @@ function bindControls() {
   });
 
   for (const key of ['A', 'B']) {
-    const el = $('chute' + key), ch = chutes[key];
-    ch.el = {
+    const el = $('chute' + key);
+    chuteEls[key] = {
       pill: el.querySelector('[data-role="pill"]'),
       toggle: el.querySelector('[data-role="toggle"]'),
       bar: el.querySelector('[data-role="bar"]'),
       count: el.querySelector('[data-role="count"]'),
     };
-    ch.el.toggle.addEventListener('click', () => { ch.open = !ch.open; });
+    chuteEls[key].toggle.addEventListener('click', () => { setChuteOpen(key, !chuteInfo(key).open); refreshUI(); });
     el.querySelector('[data-role="empty"]').addEventListener('click', () => {
-      if (!emptyChute(ch)) toast('Chute ' + key + ' bin is already empty.');
+      if (!emptyChute(key)) toast('Chute ' + key + ' bin is already empty.');
     });
   }
 }
@@ -70,13 +71,13 @@ let lastScanned = null, selected = null;
 const shown = () => selected || lastScanned;
 
 function statusOf(p) {
-  const ch = chutes[p.dest];
+  const chute = chuteInfo(p.dest).status;
   switch (p.state) {
-    case 'belt': return beltQ[0] === p && isAtBeltEnd(p) ? 'At the end of the infeed, waiting for a free tray' : 'On the infeed belt';
+    case 'belt': return isWaitingToMerge(p) ? 'At the end of the infeed, waiting for a free tray' : 'On the infeed belt';
     case 'inducting': return 'Merging onto tray ' + (p.carrier.i + 1);
     case 'carrier': {
       const lap = p.recirc ? ' · lap ' + (p.recirc + 1) : '';
-      const blocked = !ch.open ? ' (chute closed, will go round again)' : ch.count >= CAP ? ' (chute full, will go round again)' : '';
+      const blocked = chute === 'closed' ? ' (chute closed, will go round again)' : chute === 'full' ? ' (chute full, will go round again)' : '';
       return 'On tray ' + (p.carrier.i + 1) + ', heading to chute ' + p.dest + blocked + lap;
     }
     case 'chute': return 'Sliding down chute ' + p.dest;
@@ -141,21 +142,22 @@ function onScanned(p) {
 
 // Selecting a parcel outlines it and pins it in the info panel
 const outlineMat = new THREE.LineBasicMaterial({ color: 0xffd166 });
+let outline = null;
 function select(p) {
-  if (selected && selected.outline) { selected.mesh.remove(selected.outline); selected.outline.geometry.dispose(); selected.outline = null; }
+  if (outline) { selected.mesh.remove(outline); outline.geometry.dispose(); outline = null; }
   selected = p;
   if (p) {
-    p.outline = new THREE.LineSegments(new THREE.EdgesGeometry(p.mesh.geometry), outlineMat);
-    p.outline.scale.setScalar(1.06);
-    p.mesh.add(p.outline);
+    outline = new THREE.LineSegments(new THREE.EdgesGeometry(p.mesh.geometry), outlineMat);
+    outline.scale.setScalar(1.06);
+    p.mesh.add(outline);
   }
   renderInfo(true);
 }
 
 function bindInfoPanel() {
-  infeedEvents.addEventListener('scanned', e => onScanned(e.detail));
+  onInfeed('scanned', onScanned);
   for (const type of ['weighed', 'measured']) {
-    infeedEvents.addEventListener(type, e => { if (shown() === e.detail) renderInfo(true); });
+    onInfeed(type, p => { if (shown() === p) renderInfo(true); });
   }
   $('follow').addEventListener('click', () => select(null));
 }
@@ -167,10 +169,10 @@ function hitBelt(e) {
   const r = canvas.getBoundingClientRect();
   ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
   ray.setFromCamera(ndc, camera);
-  return ray.intersectObject(beltTop)[0];
+  return beltHit(ray);
 }
 function hitParcel() { // call after hitBelt has aimed the ray
-  const hit = ray.intersectObjects(parcels.map(p => p.mesh), false)[0];
+  const hit = ray.intersectObjects(allParcels().map(p => p.mesh), false)[0];
   return hit ? hit.object.userData.parcel : null;
 }
 function bindPointer() {
@@ -201,21 +203,20 @@ export function initUI() {
 }
 
 export function refreshUI() {
-  for (const ch of Object.values(chutes)) {
-    const inBin = ch.slots.filter(s => s.p).length;
-    const status = chuteStatus(ch);
-    ch.el.pill.textContent = status === 'open' ? 'Open' : status === 'full' ? 'Full' : 'Closed';
-    ch.el.pill.className = 'pill' + (status === 'open' ? '' : ' ' + status);
-    ch.el.toggle.textContent = ch.open ? 'Close' : 'Open';
-    ch.el.bar.style.width = (inBin / CAP * 100) + '%';
-    ch.el.count.textContent = inBin + ' / ' + CAP + ' in bin' + (status !== 'open' ? ' · parcels recirculate' : '');
-    ch.lampMat.color.setHex(status === 'open' ? 0x2e8b57 : status === 'full' ? 0xf2b705 : 0xc0392b);
+  for (const [key, el] of Object.entries(chuteEls)) {
+    const { status, open, bin } = chuteInfo(key);
+    el.pill.textContent = status === 'open' ? 'Open' : status === 'full' ? 'Full' : 'Closed';
+    el.pill.className = 'pill' + (status === 'open' ? '' : ' ' + status);
+    el.toggle.textContent = open ? 'Close' : 'Open';
+    el.bar.style.width = (bin.length / CAP * 100) + '%';
+    el.count.textContent = bin.length + ' / ' + CAP + ' in bin' + (status !== 'open' ? ' · parcels recirculate' : '');
   }
-  $('stBelt').textContent = beltQ.length;
-  $('stLoop').textContent = parcels.filter(p => p.state === 'carrier' || p.state === 'inducting').length;
+  const stats = sortStats();
+  $('stBelt').textContent = beltCount();
+  $('stLoop').textContent = allParcels().filter(p => p.state === 'carrier' || p.state === 'inducting').length;
   $('stSorted').textContent = stats.A + ' / ' + stats.B;
   $('stRecirc').textContent = stats.recirc;
-  const pending = rob.queue.length;
-  $('robotOut').textContent = rob.status + (pending ? ' · ' + pending + ' queued' : '');
+  const robot = robotStatus();
+  $('robotOut').textContent = robot.status + (robot.queued ? ' · ' + robot.queued + ' queued' : '');
   if (shown()) $('kStatus').textContent = statusOf(shown());
 }

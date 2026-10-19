@@ -1,14 +1,15 @@
 // Robot arm: picks parcels from a pallet and places them on the start of the infeed.
+// Its job queue and state are private; ask for picks with requestPick and read robotStatus.
 import * as THREE from 'three';
 import { BY, IND, BELT_YAW, smooth, wrapAngle } from './layout.js';
 import { scene, mat, M, box } from './scene.js';
 import { newParcel, cardboard } from './parcels.js';
-import { beltStart, beltDir, beltPerp, canPlace, putOnBelt } from './infeed.js';
+import { beltPoint, canPlace, putOnBelt } from './infeed.js';
 
 const ROB = { a1: 1.15, a2: 1.05, a3: 0.32, H0: 0.78 };
 const MAX_QUEUE = 5;
-const robotBase = beltStart.clone().addScaledVector(beltDir, 0.4).addScaledVector(beltPerp, 1.25).setY(0);
-const PICK = beltStart.clone().addScaledVector(beltDir, -1.0).addScaledVector(beltPerp, 2.2).setY(0);
+const robotBase = beltPoint(0.4, 1.25);
+const PICK = beltPoint(-1.0, 2.2);
 const STACK_TOP = 0.14 + 2 * 0.34;
 
 // Pallet with a two-layer stack of cartons
@@ -84,7 +85,7 @@ function setPose(q) {
   flange.rotation.x = -q.rot;
 }
 
-export const rob = { queue: [], steps: [], cur: null, carry: null, status: 'Idle', pose: Object.assign(cyl(PICK), { y: 1.6, rot: 0 }) };
+const rob = { queue: [], steps: [], cur: null, carry: null, status: 'Idle', pose: Object.assign(cyl(PICK), { y: 1.6, rot: 0 }) };
 const dropT = p => p.e / 2 + 0.05;
 
 // Queues a pick for destination 'A', 'B' or 'R'; returns false when the queue is full
@@ -94,11 +95,14 @@ export function requestPick(dest) {
   return true;
 }
 
+// What the robot is doing ('Idle', 'Picking', 'Placing', 'Waiting for space') and how many picks are queued
+export const robotStatus = () => ({ status: rob.status, queued: rob.queue.length });
+
 function startJob(dest) {
   const p = newParcel(dest);
   p.state = 'robot';
   const pk = cyl(PICK);
-  const dp = cyl(beltStart.clone().addScaledVector(beltDir, dropT(p)));
+  const dp = cyl(beltPoint(dropT(p)));
   const rot = wrapAngle(IND.yaw - dp.yaw); // turn the parcel so it lands square to the loop
   p.mesh.position.set(PICK.x, STACK_TOP + p.h / 2, PICK.z);
   p.mesh.rotation.set(0, pk.yaw, 0);

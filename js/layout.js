@@ -1,4 +1,5 @@
 // Dimensions (metres) and the loop's geometry. No Three.js or DOM here, so it can be tested on its own.
+// Everything here is constant; the objects are frozen so no module can change them by accident.
 
 export const L = 12;                       // straight length
 export const R = 3.5;                      // curve radius
@@ -12,13 +13,12 @@ export const MERGE_DEC = 0.35;             // distance over which a merging parc
 export const S_INDUCT = L * 0.28;          // induction point on the front straight
 export const CAP = 9;                      // parcels per chute bin
 
-export const CH = { W: 1.8, Lc: 2.2, slope: 18 * Math.PI / 180, z0: 0.56, binD: 1.8 };
-CH.y0 = TRAY_Y - 0.06;
-CH.tableY = CH.y0 - CH.Lc * Math.tan(CH.slope);
+const CH_Y0 = TRAY_Y - 0.06, CH_LC = 2.2, CH_SLOPE = 18 * Math.PI / 180;
+export const CH = Object.freeze({ W: 1.8, Lc: CH_LC, slope: CH_SLOPE, z0: 0.56, binD: 1.8, y0: CH_Y0, tableY: CH_Y0 - CH_LC * Math.tan(CH_SLOPE) });
 
 export const BL = 7, BW = 0.9, BY = TRAY_Y + 0.04; // infeed belt length, width, top height
 
-export const COL = { A: 0x1f8a8a, B: 0xd9622b, bg: 0xe3e8ec, yellow: 0xf2b705 };
+export const COL = Object.freeze({ A: 0x1f8a8a, B: 0xd9622b, bg: 0xe3e8ec, yellow: 0xf2b705 });
 
 export const mod = (a, m = P) => ((a % m) + m) % m;
 export const smooth = t => t * t * (3 - 2 * t);
@@ -45,7 +45,7 @@ export function crossed(prev, cur, target) {
 }
 
 // Infeed geometry: the belt joins the front straight at 45° and its centreline meets the loop at the induction point
-export const IND = pathAt(S_INDUCT);
-export const BELT_DIR = { x: Math.SQRT1_2, z: -Math.SQRT1_2 };
+export const IND = Object.freeze(pathAt(S_INDUCT));
+export const BELT_DIR = Object.freeze({ x: Math.SQRT1_2, z: -Math.SQRT1_2 });
 export const BELT_YAW = Math.atan2(-BELT_DIR.z, BELT_DIR.x);
 export const INDUCT_ANGLE = BELT_YAW - IND.yaw;

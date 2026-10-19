@@ -36,12 +36,16 @@ There is nothing to install: it uses Node's built-in test runner (Node 20 or new
 | `style.css` | Styles for the panels |
 | `js/layout.js` | Dimensions and the loop's path (no Three.js, so it can be tested on its own) |
 | `js/scene.js` | Renderer, camera, lights, floor, shared materials |
-| `js/state.js` | Settings from the control panel and running totals |
-| `js/parcels.js` | Parcel size, weight, label data and the carton mesh |
-| `js/sorter.js` | Loop frame, trays, chutes and bins, and parcels from the tray onwards |
-| `js/infeed.js` | Belt, merge belt, scale, label scanner, light grid and the merge onto a tray |
-| `js/robot.js` | Robot arm and pallet |
+| `js/state.js` | Settings from the control panel (the one shared object) |
+| `js/parcels.js` | Parcel size, weight, label data and the carton mesh; the parcel list (`addParcel`, `removeParcel`, `allParcels`) |
+| `js/sorter.js` | Loop frame, trays, chutes and bins, and parcels from the tray onwards (`chuteInfo`, `setChuteOpen`, `emptyChute`, `sortStats`, tray hand-over for the infeed) |
+| `js/infeed.js` | Belt, merge belt, scale, label scanner, light grid and the merge onto a tray (`onInfeed` for station readings) |
+| `js/robot.js` | Robot arm and pallet (`requestPick`, `robotStatus`) |
 | `js/ui.js` | Control panel, parcel information panel, clicking in the 3D view |
 | `js/simulation.js` | One simulation step, shared by the animation loop and the tests |
 | `js/main.js` | Startup and the animation loop |
 | `tests/` | `npm test` (not deployed; see `.vercelignore`) |
+
+Each module keeps its own data private and offers a few functions instead; the main ones are named above.
+Only `settings` is shared directly, because the control panel writes it and the simulation reads it.
+Parcel objects are passed between modules as plain records.

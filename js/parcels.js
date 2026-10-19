@@ -1,9 +1,11 @@
-// Parcels: their size, weight, label data and the 3D carton.
+// Parcels: their size, weight, label data and the 3D carton, and the list of parcels in the system.
+// The list is private: other modules add and remove parcels through addParcel and removeParcel,
+// and read it through allParcels, which returns a copy.
 import * as THREE from 'three';
 import { COL, INDUCT_ANGLE, rand, pick } from './layout.js';
 import { scene, mat } from './scene.js';
 
-export const parcels = [];
+const parcels = [];
 let parcelSeq = 1040;
 
 export const cardboard = [0xb98a5c, 0xc49a6c, 0xa97b4f].map(c => mat(c, { roughness: 0.9 }));
@@ -24,10 +26,10 @@ function labelMat(key) {
 const labels = { A: labelMat('A'), B: labelMat('B') };
 
 // Sort plan: each chute serves one route; the label's postcode decides the route
-export const ROUTES = {
-  A: { code: 'NL-N', hub: 'North hub', places: [['1012', 'Amsterdam'], ['9711', 'Groningen'], ['8911', 'Leeuwarden'], ['8011', 'Zwolle'], ['7511', 'Enschede']] },
-  B: { code: 'NL-S', hub: 'South hub', places: [['5611', 'Eindhoven'], ['6211', 'Maastricht'], ['4811', 'Breda'], ['5038', 'Tilburg'], ['3011', 'Rotterdam']] },
-};
+export const ROUTES = Object.freeze({
+  A: Object.freeze({ code: 'NL-N', hub: 'North hub', places: [['1012', 'Amsterdam'], ['9711', 'Groningen'], ['8911', 'Leeuwarden'], ['8011', 'Zwolle'], ['7511', 'Enschede']] }),
+  B: Object.freeze({ code: 'NL-S', hub: 'South hub', places: [['5611', 'Eindhoven'], ['6211', 'Maastricht'], ['4811', 'Breda'], ['5038', 'Tilburg'], ['3011', 'Rotterdam']] }),
+});
 function makeLabel(dest) {
   // SSCC-18 with GS1 mod-10 check digit
   let d = '3' + '8712345' + String(Math.floor(Math.random() * 1e9)).padStart(9, '0');
@@ -46,7 +48,8 @@ function makeLabel(dest) {
   };
 }
 
-// Creates a parcel object and its mesh; the caller adds the mesh to the scene.
+// Creates a parcel object and its mesh; the caller adds the mesh to the scene and,
+// once the parcel is in the system, calls addParcel.
 // dest is 'A', 'B' or 'R' (random).
 export function newParcel(dest) {
   if (dest === 'R') dest = Math.random() < 0.5 ? 'A' : 'B';
@@ -63,9 +66,17 @@ export function newParcel(dest) {
   return p;
 }
 
+export function addParcel(p) {
+  parcels.push(p);
+}
+
+// Takes a collected parcel out of the scene and the list
 export function removeParcel(p) {
   scene.remove(p.mesh);
   p.mesh.geometry.dispose();
   p.state = 'collected';
   parcels.splice(parcels.indexOf(p), 1);
 }
+
+// A snapshot of every parcel in the system; safe to iterate while parcels are added or removed
+export const allParcels = () => parcels.slice();

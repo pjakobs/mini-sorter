@@ -4,12 +4,13 @@ const out = document.getElementById('result');
 const report = obj => { out.textContent = JSON.stringify(obj); };
 
 try {
-  const { settings, stats } = await import('../js/state.js');
+  // Only the modules' public functions; the scenarios drive the sorter the way the UI does
+  const { settings } = await import('../js/state.js');
   const { step } = await import('../js/simulation.js');
-  const { chutes } = await import('../js/sorter.js');
-  const { placeOnBelt, beltQ } = await import('../js/infeed.js');
-  const { rob, requestPick } = await import('../js/robot.js');
-  const { parcels } = await import('../js/parcels.js');
+  const { chuteInfo, setChuteOpen, sortStats } = await import('../js/sorter.js');
+  const { placeOnBelt, beltCount } = await import('../js/infeed.js');
+  const { robotStatus, requestPick } = await import('../js/robot.js');
+  const { allParcels } = await import('../js/parcels.js');
 
   const run = secs => { for (let i = 0; i < secs * 60; i++) step(1 / 60); };
   // Keeps asking the robot for picks until n have been accepted, simulating as it goes
@@ -18,13 +19,13 @@ try {
     while (asked < n) { if (requestPick(dest)) asked++; else run(1); }
   };
   const summary = () => ({
-    stats: { ...stats },
-    belt: beltQ.length,
-    robot: rob.status,
-    queue: rob.queue.length,
-    count: { A: chutes.A.count, B: chutes.B.count },
-    bins: { A: chutes.A.slots.filter(s => s.p).map(s => s.p.dest), B: chutes.B.slots.filter(s => s.p).map(s => s.p.dest) },
-    parcels: parcels.map(p => ({ dest: p.dest, state: p.state, recirc: p.recirc, weighed: !!p.weighed, scanned: !!p.scanned, measured: !!p.measured })),
+    stats: sortStats(),
+    belt: beltCount(),
+    robot: robotStatus().status,
+    queue: robotStatus().queued,
+    count: { A: chuteInfo('A').count, B: chuteInfo('B').count },
+    bins: { A: chuteInfo('A').bin, B: chuteInfo('B').bin },
+    parcels: allParcels().map(p => ({ dest: p.dest, state: p.state, recirc: p.recirc, weighed: !!p.weighed, scanned: !!p.scanned, measured: !!p.measured })),
   });
 
   const scenarios = {
@@ -38,11 +39,11 @@ try {
     },
     // A closed chute sends its parcels round again; reopening it lets them out
     closed() {
-      chutes.A.open = false;
+      setChuteOpen('A', false);
       feed(3, 'A');
       run(60);
       const whileClosed = summary();
-      chutes.A.open = true;
+      setChuteOpen('A', true);
       run(30);
       return { whileClosed, reopened: summary() };
     },
